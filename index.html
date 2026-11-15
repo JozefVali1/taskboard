@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TaskBoard Mobile & Desktop - GitHub Gist Sync</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Płynne przewijanie dotykowe na urządzeniach mobilnych (iOS/Android) */
+        .touch-scroll {
+            -webkit-overflow-scrolling: touch;
+            scroll-snap-type: x mandatory;
+        }
+        .kanban-col {
+            scroll-snap-align: start;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col antialiased">
+
+    <!-- Navbar / Header (W pełni responsywny na mobile i desktop) -->
+    <header class="bg-slate-800 border-b border-slate-700 px-4 py-3 md:px-6 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-3 sticky top-0 z-40 shadow-md">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-kanban text-blue-400 text-2xl"></i>
+                <h1 class="text-lg md:text-xl font-bold tracking-wide">TaskBoard</h1>
+            </div>
+            
+            <!-- Przełącznik widoków mobilny / desktopowy -->
+            <div class="bg-slate-700 p-1 rounded-lg flex text-xs font-medium md:hidden">
+                <button onclick="switchView('kanban')" id="btnViewKanbanMob" class="px-2.5 py-1 rounded-md bg-blue-600 text-white transition">Tablica</button>
+                <button onclick="switchView('timeline')" id="btnViewTimelineMob" class="px-2.5 py-1 rounded-md text-slate-300 transition">Timeline</button>
+            </div>
+        </div>
+
+        <!-- Przełącznik widoków (Desktop) -->
+        <div class="hidden md:flex bg-slate-700 p-1 rounded-lg text-xs font-medium">
+            <button onclick="switchView('kanban')" id="btnViewKanban" class="px-3 py-1.5 rounded-md bg-blue-600 text-white transition">Tablica Kanban</button>
+            <button onclick="switchView('timeline')" id="btnViewTimeline" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white transition">Timeline / Roadmap</button>
+        </div>
+        
+        <!-- Controls & Filters -->
+        <div class="flex flex-wrap items-center gap-2 md:gap-3">
+            <!-- Wyszukiwarka -->
+            <div class="relative flex-1 md:flex-initial">
+                <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-xs text-slate-400"></i>
+                <input type="text" id="searchInput" oninput="renderApp()" placeholder="Szukaj zadań..." class="bg-slate-700 border border-slate-600 rounded pl-8 pr-3 py-1.5 text-xs md:text-sm focus:outline-none focus:border-blue-500 w-full md:w-44">
+            </div>
+
+            <select id="filterProject" onchange="renderApp()" class="bg-slate-700 border border-slate-600 rounded px-2 md:px-3 py-1.5 text-xs md:text-sm focus:outline-none focus:border-blue-500 max-w-[130px] md:max-w-none">
+                <option value="ALL">Wszystkie projekty</option>
+            </select>
+            
+            <div class="flex items-center gap-2 ml-auto md:ml-0">
+                <button onclick="openSettingsModal()" title="Ustawienia Gist" class="bg-slate-700 hover:bg-slate-600 p-2 md:px-3 md:py-1.5 rounded text-sm flex items-center justify-center transition">
+                    <i class="fa-solid fa-gear"></i>
+                </button>
+                <button onclick="syncWithGist()" title="Zapisz do Gist" class="bg-emerald-600 hover:bg-emerald-500 p-2 md:px-3 md:py-1.5 rounded text-sm flex items-center justify-center transition font-medium">
+                    <i class="fa-solid fa-cloud-arrow-up"></i> <span class="hidden lg:inline ml-1.5">Zapisz</span>
+                </button>
+                <button onclick="copyToTeams()" title="Kopiuj do Teams" class="bg-blue-600 hover:bg-blue-500 p-2 md:px-3 md:py-1.5 rounded text-sm flex items-center justify-center transition font-medium">
+                    <i class="fa-solid fa-copy"></i> <span class="hidden lg:inline ml-1.5">Teams</span>
+                </button>
+                <button onclick="openTaskModal()" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 md:px-4 rounded text-xs md:text-sm flex items-center gap-1.5 transition font-medium">
+                    <i class="fa-solid fa-plus"></i> <span class="hidden sm:inline">Nowe</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 p-3 md:p-6 overflow-x-auto touch-scroll">
+        <!-- Widok Kanban (Kolumny zoptymalizowane pod dotyk i mobile) -->
+        <div id="kanbanView" class="flex gap-4 md:gap-6 items-start min-h-[75vh] pb-6"></div>
+        
+        <!-- Widok Timeline / Roadmap -->
+        <div id="timelineView" class="hidden max-w-5xl mx-auto space-y-4 md:space-y-6"></div>
+    </main>
+
+    <!-- Modal Zadania (Zoptymalizowany pod iPhone / iPad / Desktop) -->
+    <div id="taskModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center p-3 md:p-4 z-50">
+        <div class="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-lg p-4 md:p-6 shadow-2xl max-h-[92vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-3 md:mb-4">
+                <h2 id="modalTitle" class="text-base md:text-lg font-bold">Nowe zadanie</h2>
+                <button onclick="closeTaskModal()" class="text-slate-400 hover:text-white p-2"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <form id="taskForm" onsubmit="handleTaskSubmit(event)" class="space-y-3 md:space-y-4">
+                <input type="hidden" id="taskId">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Nazwa zadania *</label>
+                    <input type="text" id="taskName" required class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1">Projekt *</label>
+                        <input type="text" id="taskProject" list="projectSuggestions" required class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                        <datalist id="projectSuggestions"></datalist>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1">Priorytet</label>
+                        <select id="taskPriority" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                            <option value="Niski">Niski</option>
+                            <option value="Średni" selected>Średni</option>
+                            <option value="Wysoki">Wysoki</option>
+                            <option value="Krytyczny">Krytyczny</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1">Status</label>
+                        <select id="taskStatus" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1">Deadline</label>
+                        <input type="date" id="taskDeadline" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1">Szacunek (MD)</label>
+                        <input type="number" step="0.5" min="0" id="taskMd" placeholder="np. 2" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Opis</label>
+                    <textarea id="taskDescription" rows="2" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"></textarea>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Komentarz</label>
+                    <textarea id="taskComment" rows="2" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"></textarea>
+                </div>
+                <!-- Checklist / Subtasks -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Checklist / Podzadania</label>
+                    <div id="subtasksList" class="space-y-2 mb-2"></div>
+                    <div class="flex gap-2">
+                        <input type="text" id="newSubtaskText" placeholder="Dodaj podzadanie..." class="flex-1 bg-slate-700 border border-slate-600 rounded px-3 py-2 text-xs md:text-sm focus:outline-none focus:border-blue-500">
+                        <button type="button" onclick="addSubtaskItem()" class="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded text-xs md:text-sm font-medium">Dodaj</button>
+                    </div>
+                </div>
+
+                <div class="flex justify-between items-center pt-3 border-t border-slate-700">
+                    <button type="button" id="deleteTaskBtn" onclick="deleteCurrentTask()" class="text-rose-400 hover:text-rose-300 text-sm hidden py-1">Usuń</button>
+                    <div class="flex gap-2 md:gap-3 ml-auto">
+                        <button type="button" onclick="closeTaskModal()" class="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded text-sm">Zamknij</button>
+                        <button type="submit" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm font-medium">Zapisz</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Konfiguracji Gist & Statusów -->
+    <div id="settingsModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center p-3 md:p-4 z-50">
+        <div class="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-md p-4 md:p-6 shadow-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-base md:text-lg font-bold">Ustawienia Gist i Statusów</h2>
+                <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-white p-2"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="space-y-3 md:space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">GitHub Personal Access Token (PAT)</label>
+                    <input type="password" id="gistToken" placeholder="ghp_..." class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">GitHub Gist ID</label>
+                    <input type="text" id="gistId" placeholder="np. a1b2c3d4..." class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 mb-1">Statusy kolumn (rozdzielone przecinkami)</label>
+                    <input type="text" id="statusesConfig" class="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="flex justify-end gap-3 pt-2">
+                    <button onclick="closeSettingsModal()" class="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded text-sm">Zamknij</button>
+                    <button onclick="saveSettings()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm font-medium">Zapisz i pobierz</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Skrypt aplikacji -->
+    <script>
+        let appData = {
+            statuses: ["Do zrobienia", "W toku", "Testy", "Zrobione"],
+            tasks: []
+        };
+
+        let currentView = 'kanban';
+        let currentSubtasksTemp = [];
+
+        let settings = {
+            token: localStorage.getItem('gist_token') || '',
+            gistId: localStorage.getItem('gist_id') || ''
+        };
+
+        window.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('gistToken').value = settings.token;
+            document.getElementById('gistId').value = settings.gistId;
+            
+            const savedStatuses = localStorage.getItem('app_statuses');
+            if (savedStatuses) appData.statuses = JSON.parse(savedStatuses);
+
+            const savedTasks = localStorage.getItem('app_tasks');
+            if (savedTasks) appData.tasks = JSON.parse(savedTasks);
+
+            renderApp();
+            updateProjectFilter();
+
+            if (settings.token && settings.gistId) {
+                syncWithGist(true);
+            }
+        });
+
+        function switchView(view) {
+            currentView = view;
+            const btnK = document.getElementById('btnViewKanban');
+            const btnT = document.getElementById('btnViewTimeline');
+            const btnKMob = document.getElementById('btnViewKanbanMob');
+            const btnTMob = document.getElementById('btnViewTimelineMob');
+            const viewK = document.getElementById('kanbanView');
+            const viewT = document.getElementById('timelineView');
+
+            if (view === 'kanban') {
+                if(btnK) btnK.className = "px-3 py-1.5 rounded-md bg-blue-600 text-white transition";
+                if(btnT) btnT.className = "px-3 py-1.5 rounded-md text-slate-300 hover:text-white transition";
+                if(btnKMob) btnKMob.className = "px-2.5 py-1 rounded-md bg-blue-600 text-white transition";
+                if(btnTMob) btnTMob.className = "px-2.5 py-1 rounded-md text-slate-300 transition";
+                viewK.classList.remove('hidden');
+                viewT.classList.add('hidden');
+            } else {
+                if(btnT) btnT.className = "px-3 py-1.5 rounded-md bg-blue-600 text-white transition";
+                if(btnK) btnK.className = "px-3 py-1.5 rounded-md text-slate-300 hover:text-white transition";
+                if(btnTMob) btnTMob.className = "px-2.5 py-1 rounded-md bg-blue-600 text-white transition";
+                if(btnKMob) btnKMob.className = "px-2.5 py-1 rounded-md text-slate-300 transition";
+                viewT.classList.remove('hidden');
+                viewK.classList.add('hidden');
+            }
+            renderApp();
+        }
+
+        function calculateTaskHours(task) {
+            let totalHours = task.actualHours || 0;
+            if (task.status === 'W toku' && task.inProgressSince) {
+                const diffMs = new Date() - new Date(task.inProgressSince);
+                totalHours += diffMs / (1000 * 60 * 60);
+            }
+            return totalHours;
+        }
+
+        function getFilteredTasks() {
+            const selectedProject = document.getElementById('filterProject').value;
+            const searchQuery = document.getElementById('searchInput').value.toLowerCase().trim();
+
+            return appData.tasks.filter(t => {
+                const matchProject = selectedProject === "ALL" || t.project === selectedProject;
+                const matchSearch = !searchQuery || t.name.toLowerCase().includes(searchQuery) || (t.description && t.description.toLowerCase().includes(searchQuery)) || t.project.toLowerCase().includes(searchQuery);
+                return matchProject && matchSearch;
+            });
+        }
+
+        function renderApp() {
+            if (currentView === 'kanban') {
+                renderBoard();
+            } else {
+                renderTimeline();
+            }
+        }
+
+        function renderBoard() {
+            const board = document.getElementById('kanbanView');
+            board.innerHTML = '';
+            const filteredTasks = getFilteredTasks();
+
+            appData.statuses.forEach((status, statusIndex) => {
+                const columnTasks = filteredTasks.filter(t => t.status === status);
+                
+                let colHours = 0;
+                columnTasks.forEach(t => colHours += calculateTaskHours(t));
+                let colMd = (colHours / 8).toFixed(1);
+
+                const colDiv = document.createElement('div');
+                colDiv.className = 'kanban-col bg-slate-800/90 border border-slate-700 rounded-xl w-[280px] md:w-80 flex-shrink-0 flex flex-col max-h-[78vh] shadow-lg';
+                colDiv.ondragover = (e) => allowDrop(e);
+                colDiv.ondrop = (e) => dropCard(e, status);
+                
+                colDiv.innerHTML = `
+                    <div class="p-3 border-b border-slate-700 flex justify-between items-center bg-slate-800 rounded-t-xl sticky top-0 z-10">
+                        <span class="font-bold text-xs md:text-sm uppercase tracking-wider text-slate-300 truncate max-w-[150px]">${status}</span>
+                        <span class="bg-slate-700 text-slate-300 text-[10px] md:text-[11px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap">
+                            ${columnTasks.length} | ${colHours > 0 ? colHours.toFixed(1) + 'h / ' + colMd + ' MD' : '0h'}
+                        </span>
+                    </div>
+                    <div class="p-2 md:p-3 overflow-y-auto space-y-3 flex-1">
+                        ${columnTasks.map(t => createTaskCardHtml(t, statusIndex)).join('')}
+                        ${columnTasks.length === 0 ? '<div class="text-center text-slate-500 text-xs py-6 italic">Brak zadań</div>' : ''}
+                    </div>
+                `;
+                board.appendChild(colDiv);
+            });
+        }
+
+        function createTaskCardHtml(task, statusIndex) {
+            let deadlineBadge = '';
+            if (task.deadline) {
+                const today = new Date().toISOString().split('T')[0];
+                const diffTime = new Date(task.deadline) - new Date(today);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                if (task.deadline < today && task.status !== 'Zrobione') {
+                    deadlineBadge = `<span class="bg-rose-500/20 text-rose-400 border border-rose-500/30 px-1.5 py-0.5 rounded text-[10px] font-medium flex items-center gap-1"><i class="fa-solid fa-triangle-exclamation"></i> ${task.deadline}</span>`;
+                } else if (diffDays <= 2 && diffDays >= 0 && task.status !== 'Zrobione') {
+                    deadlineBadge = `<span class="bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded text-[10px] font-medium flex items-center gap-1"><i class="fa-solid fa-clock"></i> ${task.deadline}</span>`;
+                } else {
+                    deadlineBadge = `<span class="bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded text-[10px]"><i class="fa-regular fa-calendar"></i> ${task.deadline}</span>`;
+                }
+            }
+
+            const priorityColors = {
+                'Niski': 'bg-slate-700 text-slate-300',
+                'Średni': 'bg-blue-500/20 text-blue-400',
+                'Wysoki': 'bg-amber-500/20 text-amber-400',
+                'Krytyczny': 'bg-rose-500/20 text-rose-400'
+            };
+
+            const totalHours = calculateTaskHours(task);
+            const actualMd = (totalHours / 8).toFixed(1);
+            
+            let timeInfo = '';
+            if (task.md) {
+                timeInfo += `<span class="bg-slate-800 px-1 py-0.5 rounded font-mono text-slate-300">Szac: ${task.md} MD</span>`;
+            }
+            if (totalHours > 0 || task.status === 'W toku') {
+                const isRunning = task.status === 'W toku';
+                timeInfo += `<span class="bg-slate-800 px-1 py-0.5 rounded font-mono ${isRunning ? 'text-emerald-400 animate-pulse' : 'text-slate-300'}">Akt: ${actualMd} MD (${totalHours.toFixed(1)}h)</span>`;
+            }
+
+            let checklistInfo = '';
+            if (task.subtasks && task.subtasks.length > 0) {
+                const doneCount = task.subtasks.filter(s => s.done).length;
+                checklistInfo = `<span class="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded flex items-center gap-1"><i class="fa-solid fa-list-check"></i> ${doneCount}/${task.subtasks.length}</span>`;
+            }
+
+            // Przyciski szybkiego przesuwania (optymalizacja pod dotyk na mobile)
+            let moveButtons = `<div class="flex gap-1">`;
+            if (statusIndex > 0) {
+                moveButtons += `<button onclick="event.stopPropagation(); moveTaskStatus('${task.id}', -1)" title="Przesuń w lewo" class="bg-slate-700 hover:bg-slate-600 px-2 py-1 md:px-1.5 md:py-0.5 rounded text-xs md:text-[10px] text-slate-200"><i class="fa-solid fa-chevron-left"></i></button>`;
+            }
+            if (statusIndex < appData.statuses.length - 1) {
+                moveButtons += `<button onclick="event.stopPropagation(); moveTaskStatus('${task.id}', 1)" title="Przesuń w prawo" class="bg-slate-700 hover:bg-slate-600 px-2 py-1 md:px-1.5 md:py-0.5 rounded text-xs md:text-[10px] text-slate-200"><i class="fa-solid fa-chevron-right"></i></button>`;
+            }
+            moveButtons += `</div>`;
+
+            return `
+                <div draggable="true" ondragstart="dragCardStart(event, '${task.id}')" onclick="openTaskModal('${task.id}')" class="bg-slate-700/60 hover:bg-slate-700 border border-slate-600/70 rounded-lg p-3 cursor-pointer md:cursor-grab active:cursor-grabbing transition shadow-sm space-y-2 select-none">
+                    <div class="flex justify-between items-start gap-2">
+                        <span class="text-[10px] md:text-[11px] font-semibold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 truncate max-w-[120px]">${escapeHtml(task.project)}</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] md:text-[11px] font-medium px-1.5 py-0.5 rounded ${priorityColors[task.priority] || 'bg-slate-700'}">${task.priority}</span>
+                            ${moveButtons}
+                        </div>
+                    </div>
+                    <h3 class="font-bold text-xs md:text-sm text-white">${escapeHtml(task.name)}</h3>
+                    ${task.description ? `<p class="text-[11px] text-slate-400 line-clamp-2">${escapeHtml(task.description)}</p>` : ''}
+                    <div class="flex flex-wrap items-center justify-between gap-1.5 pt-1.5 border-t border-slate-600/40 text-[10px] md:text-[11px] text-slate-400">
+                        <div class="flex items-center gap-1">${deadlineBadge} ${checklistInfo}</div>
+                        <div class="flex flex-wrap gap-1">${timeInfo}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        let draggedTaskId = null;
+        function dragCardStart(e, taskId) {
+            draggedTaskId = taskId;
+            e.dataTransfer.setData('text/plain', taskId);
+        }
+        function allowDrop(e) {
+            e.preventDefault();
+        }
+        function dropCard(e, targetStatus) {
+            e.preventDefault();
+            if (!draggedTaskId) return;
+            const task = appData.tasks.find(t => t.id === draggedTaskId);
+            if (task && task.status !== targetStatus) {
+                changeTaskStatusWithTime(task, targetStatus);
+                saveLocally();
+                renderApp();
+            }
+            draggedTaskId = null;
+        }
+
+        function moveTaskStatus(taskId, direction) {
+            const task = appData.tasks.find(t => t.id === taskId);
+            if (!task) return;
+            const currentIndex = appData.statuses.indexOf(task.status);
+            const newIndex = currentIndex + direction;
+            if (newIndex >= 0 && newIndex < appData.statuses.length) {
+                changeTaskStatusWithTime(task, appData.statuses[newIndex]);
+                saveLocally();
+                renderApp();
+            }
+        }
+
+        function changeTaskStatusWithTime(task, newStatus) {
+            let oldStatus = task.status;
+            let actualHours = task.actualHours || 0;
+            let inProgressSince = task.inProgressSince || null;
+            const now = new Date().toISOString();
+
+            if (oldStatus !== 'W toku' && newStatus === 'W toku') {
+                inProgressSince = now;
+            } else if (oldStatus === 'W toku' && newStatus !== 'W toku') {
+                if (inProgressSince) {
+                    actualHours += (new Date() - new Date(inProgressSince)) / (1000 * 60 * 60);
+                    inProgressSince = null;
+                }
+            } else if (newStatus === 'Zrobione' && oldStatus === 'W toku' && inProgressSince) {
+                actualHours += (new Date() - new Date(inProgressSince)) / (1000 * 60 * 60);
+                inProgressSince = null;
+            }
+
+            task.status = newStatus;
+            task.actualHours = actualHours;
+            task.inProgressSince = inProgressSince;
+        }
+
+        function renderTimeline() {
+            const container = document.getElementById('timelineView');
+            container.innerHTML = '';
+            const filteredTasks = getFilteredTasks().sort((a, b) => {
+                if (!a.deadline) return 1;
+                if (!b.deadline) return -1;
+                return a.deadline.localeCompare(b.deadline);
+            });
+
+            if (filteredTasks.length === 0) {
+                container.innerHTML = `<div class="text-center text-slate-400 py-12 bg-slate-800 rounded-xl text-sm">Brak zadań spełniających kryteria.</div>`;
+                return;
+            }
+
+            let html = `<div class="bg-slate-800 border border-slate-700 rounded-xl p-4 md:p-6 space-y-4">
+                <h3 class="text-sm md:text-base font-bold mb-4 text-slate-200"><i class="fa-solid fa-timeline text-blue-400 mr-2"></i> Harmonogram i Roadmapa zadań</h3>
+                <div class="relative border-l-2 border-slate-700 ml-3 md:ml-4 space-y-6">`;
+
+            filteredTasks.forEach(t => {
+                const totalH = calculateTaskHours(t);
+                html += `
+                    <div class="ml-5 md:ml-6 relative bg-slate-700/50 border border-slate-600 rounded-lg p-3 md:p-4 space-y-2">
+                        <span class="absolute -left-[31px] md:-left-[35px] top-4 w-3.5 h-3.5 md:w-4 md:h-4 rounded-full bg-blue-500 border-4 border-slate-800"></span>
+                        <div class="flex flex-wrap justify-between items-center gap-2">
+                            <span class="text-[11px] font-semibold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300">${escapeHtml(t.project)}</span>
+                            <span class="text-xs font-mono text-blue-400"><i class="fa-regular fa-calendar mr-1"></i> ${t.deadline || 'Brak deadline'}</span>
+                        </div>
+                        <h4 class="font-bold text-white text-xs md:text-sm">${escapeHtml(t.name)}</h4>
+                        <div class="flex flex-wrap gap-3 md:gap-4 text-xs text-slate-400 pt-1 border-t border-slate-600/50">
+                            <span>Status: <strong class="text-slate-200">${t.status}</strong></span>
+                            <span>Priorytet: <strong class="text-slate-200">${t.priority}</strong></span>
+                            ${t.md ? `<span>Szacunek: <strong class="text-slate-200">${t.md} MD</strong></span>` : ''}
+                            ${totalH > 0 ? `<span>Zużycie: <strong class="text-emerald-400">${(totalH/8).toFixed(1)} MD (${totalH.toFixed(1)}h)</strong></span>` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += `</div></div>`;
+            container.innerHTML = html;
+        }
+
+        function openTaskModal(taskId = null) {
+            const modal = document.getElementById('taskModal');
+            const form = document.getElementById('taskForm');
+            const deleteBtn = document.getElementById('deleteTaskBtn');
+            const statusSelect = document.getElementById('taskStatus');
+            
+            statusSelect.innerHTML = appData.statuses.map(s => `<option value="${s}">${s}</option>`).join('');
+            
+            const suggestions = document.getElementById('projectSuggestions');
+            const projects = [...new Set(appData.tasks.map(t => t.project))];
+            suggestions.innerHTML = projects.map(p => `<option value="${p}">`).join('');
+
+            form.reset();
+            currentSubtasksTemp = [];
+
+            if (taskId) {
+                document.getElementById('modalTitle').innerText = "Edytuj zadanie";
+                const task = appData.tasks.find(t => t.id === taskId);
+                if (task) {
+                    document.getElementById('taskId').value = task.id;
+                    document.getElementById('taskName').value = task.name;
+                    document.getElementById('taskProject').value = task.project;
+                    document.getElementById('taskPriority').value = task.priority;
+                    document.getElementById('taskStatus').value = task.status;
+                    document.getElementById('taskDeadline').value = task.deadline || '';
+                    document.getElementById('taskMd').value = task.md || '';
+                    document.getElementById('taskDescription').value = task.description || '';
+                    document.getElementById('taskComment').value = task.comment || '';
+                    currentSubtasksTemp = task.subtasks ? JSON.parse(JSON.stringify(task.subtasks)) : [];
+                    deleteBtn.classList.remove('hidden');
+                }
+            } else {
+                document.getElementById('modalTitle').innerText = "Nowe zadanie";
+                document.getElementById('taskId').value = '';
+                deleteBtn.classList.add('hidden');
+            }
+            renderSubtasksModal();
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeTaskModal() {
+            const modal = document.getElementById('taskModal');
+            modal.classList.remove('flex');
+            modal.classList.add('hidden');
+        }
+
+        function renderSubtasksModal() {
+            const container = document.getElementById('subtasksList');
+            container.innerHTML = currentSubtasksTemp.map((sub, idx) => `
+                <div class="flex items-center justify-between bg-slate-700 px-3 py-2 rounded text-xs md:text-sm">
+                    <label class="flex items-center gap-2 cursor-pointer flex-1">
+                        <input type="checkbox" ${sub.done ? 'checked' : ''} onchange="toggleSubtaskTemp(${idx})" class="w-4 h-4 rounded bg-slate-600 border-slate-500">
+                        <span class="${sub.done ? 'line-through text-slate-400' : 'text-white'}">${escapeHtml(sub.text)}</span>
+                    </label>
+                    <button type="button" onclick="removeSubtaskTemp(${idx})" class="text-rose-400 hover:text-rose-300 p-1 ml-2"><i class="fa-solid fa-trash text-xs"></i></button>
+                </div>
+            `).join('');
+        }
+
+        function addSubtaskItem() {
+            const input = document.getElementById('newSubtaskText');
+            const val = input.value.trim();
+            if (val) {
+                currentSubtasksTemp.push({ text: val, done: false });
+                input.value = '';
+                renderSubtasksModal();
+            }
+        }
+
+        function toggleSubtaskTemp(idx) {
+            currentSubtasksTemp[idx].done = !currentSubtasksTemp[idx].done;
+            renderSubtasksModal();
+        }
+
+        function removeSubtaskTemp(idx) {
+            currentSubtasksTemp.splice(idx, 1);
+            renderSubtasksModal();
+        }
+
+        function handleTaskSubmit(e) {
+            e.preventDefault();
+            const id = document.getElementById('taskId').value;
+            const newStatus = document.getElementById('taskStatus').value;
+            
+            let existingTask = id ? appData.tasks.find(t => t.id === id) : null;
+            let actualHours = existingTask ? (existingTask.actualHours || 0) : 0;
+            let inProgressSince = existingTask ? (existingTask.inProgressSince || null) : null;
+
+            let tempTaskObj = {
+                status: existingTask ? existingTask.status : appData.statuses[0],
+                actualHours: actualHours,
+                inProgressSince: inProgressSince
+            };
+
+            changeTaskStatusWithTime(tempTaskObj, newStatus);
+
+            const taskData = {
+                id: id || '_' + Math.random().toString(36).substr(2, 9),
+                name: document.getElementById('taskName').value,
+                project: document.getElementById('taskProject').value.trim(),
+                priority: document.getElementById('taskPriority').value,
+                status: newStatus,
+                deadline: document.getElementById('taskDeadline').value,
+                md: document.getElementById('taskMd').value ? parseFloat(document.getElementById('taskMd').value) : '',
+                description: document.getElementById('taskDescription').value,
+                comment: document.getElementById('taskComment').value,
+                subtasks: currentSubtasksTemp,
+                actualHours: tempTaskObj.actualHours,
+                inProgressSince: tempTaskObj.inProgressSince
+            };
+
+            if (id) {
+                const index = appData.tasks.findIndex(t => t.id === id);
+                if (index !== -1) appData.tasks[index] = taskData;
+            } else {
+                appData.tasks.push(taskData);
+            }
+
+            saveLocally();
+            renderApp();
+            updateProjectFilter();
+            closeTaskModal();
+        }
+
+        function deleteCurrentTask() {
+            const id = document.getElementById('taskId').value;
+            if (id && confirm("Czy na pewno chcesz usunąć to zadanie?")) {
+                appData.tasks = appData.tasks.filter(t => t.id !== id);
+                saveLocally();
+                renderApp();
+                updateProjectFilter();
+                closeTaskModal();
+            }
+        }
+
+        function saveLocally() {
+            localStorage.setItem('app_tasks', JSON.stringify(appData.tasks));
+            localStorage.setItem('app_statuses', JSON.stringify(appData.statuses));
+        }
+
+        function updateProjectFilter() {
+            const filterSelect = document.getElementById('filterProject');
+            const currentVal = filterSelect.value;
+            const projects = [...new Set(appData.tasks.map(t => t.project))];
+            
+            filterSelect.innerHTML = `<option value="ALL">Wszystkie projekty</option>` + 
+                projects.map(p => `<option value="${p}">${p}</option>`).join('');
+            
+            if (projects.includes(currentVal) || currentVal === "ALL") {
+                filterSelect.value = currentVal;
+            }
+        }
+
+        function openSettingsModal() {
+            document.getElementById('statusesConfig').value = appData.statuses.join(', ');
+            const modal = document.getElementById('settingsModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeSettingsModal() {
+            const modal = document.getElementById('settingsModal');
+            modal.classList.remove('flex');
+            modal.classList.add('hidden');
+        }
+
+        function saveSettings() {
+            settings.token = document.getElementById('gistToken').value.trim();
+            settings.gistId = document.getElementById('gistId').value.trim();
+            const statusesRaw = document.getElementById('statusesConfig').value;
+
+            localStorage.setItem('gist_token', settings.token);
+            localStorage.setItem('gist_id', settings.gistId);
+
+            if (statusesRaw) {
+                appData.statuses = statusesRaw.split(',').map(s => s.trim()).filter(Boolean);
+                localStorage.setItem('app_statuses', JSON.stringify(appData.statuses));
+            }
+
+            closeSettingsModal();
+            renderApp();
+            if (settings.token && settings.gistId) {
+                syncWithGist(true);
+            }
+        }
+
+        async function syncWithGist(silent = false) {
+            if (!settings.token || !settings.gistId) {
+                if (!silent) alert("Skonfiguruj najpierw Token oraz Gist ID w ustawieniach!");
+                return;
+            }
+
+            try {
+                const response = await fetch(`https://api.github.com/gists/${settings.gistId}`, {
+                    headers: { 'Authorization': `token ${settings.token}` }
+                });
+
+                if (!response.ok) throw new Error("Błąd pobierania Gista. Sprawdź token i ID.");
+
+                const gist = await response.json();
+                const fileName = 'taskboard_data.json';
+
+                if (gist.files[fileName]) {
+                    const remoteData = JSON.parse(gist.files[fileName].content);
+                    if (remoteData.tasks) appData.tasks = remoteData.tasks;
+                    if (remoteData.statuses) appData.statuses = remoteData.statuses;
+                    saveLocally();
+                    renderApp();
+                    updateProjectFilter();
+                    if (!silent) alert("Pomyślnie zsynchronizowano z Gist!");
+                } else {
+                    await pushToGist();
+                    if (!silent) alert("Utworzono plik danych w Gist!");
+                }
+            } catch (error) {
+                console.error(error);
+                if (!silent) alert("Wystąpił błąd synchronizacji: " + error.message);
+            }
+        }
+
+        async function pushToGist() {
+            if (!settings.token || !settings.gistId) return;
+
+            const payload = {
+                files: {
+                    'taskboard_data.json': {
+                        content: JSON.stringify({ tasks: appData.tasks, statuses: appData.statuses }, null, 2)
+                    }
+                }
+            };
+
+            const response = await fetch(`https://api.github.com/gists/${settings.gistId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `token ${settings.token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) throw new Error("Nie udało się zapisać zmian w Gist.");
+        }
+
+        function copyToTeams() {
+            const selectedProject = document.getElementById('filterProject').value;
+            const filteredTasks = getFilteredTasks();
+
+            if (filteredTasks.length === 0) {
+                alert("Brak zadań do skopiowania dla wybranego filtru/wyszukiwania.");
+                return;
+            }
+
+            let mdText = `### 📋 Raport zadań (${selectedProject === "ALL" ? "Wszystkie projekty" : selectedProject})\n\n`;
+            
+            appData.statuses.forEach(status => {
+                const tasksInStatus = filteredTasks.filter(t => t.status === status);
+                if (tasksInStatus.length > 0) {
+                    mdText += `**${status}**\n`;
+                    tasksInStatus.forEach(t => {
+                        const totalH = calculateTaskHours(t);
+                        const actMd = (totalH / 8).toFixed(1);
+                        
+                        mdText += `- [ ] **[${t.project}]** ${t.name} *(Priorytet: ${t.priority}`;
+                        if (t.deadline) mdText += `, Deadline: ${t.deadline}`;
+                        if (t.md) mdText += `, Szacunek: ${t.md} MD`;
+                        if (totalH > 0) mdText += `, Zużycie: ${actMd} MD (${totalH.toFixed(1)}h)`;
+                        mdText += `)*\n`;
+
+                        if (t.description) mdText += `  > ${t.description}\n`;
+                        if (t.subtasks && t.subtasks.length > 0) {
+                            t.subtasks.forEach(sub => {
+                                mdText += `    - [${sub.done ? 'x' : ' '}] ${sub.text}\n`;
+                            });
+                        }
+                    });
+                    mdText += `\n`;
+                }
+            });
+
+            navigator.clipboard.writeText(mdText).then(() => {
+                alert("Raport zadań został skopiowany do schowka!");
+            }).catch(err => {
+                alert("Błąd kopiowania do schowka: " + err);
+            });
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#039;');
+        }
+    </script>
+</body>
+</html>
